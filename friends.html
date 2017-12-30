@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Document</title>
+</head>
+
+<body>
+    <ul id="list">
+
+    </ul>
+
+
+    <script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+    <script>
+        $(function() {
+
+            $.get("/people/" + localStorage.getItem('user_id'), function(data) {
+                console.log(data);
+
+                $.each(data, function(key, value) {
+                    if (typeof value.Name != 'undefined') {
+                        $('#list').append(' <a href="/chat/' + value.ID + '"><li>' + value.Name + '</li>');
+
+                    }
+                });
+            });
+        });
+    </script>
+
+</body>
+
+</html>

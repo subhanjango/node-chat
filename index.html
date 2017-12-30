@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+</head>
+
+<body>
+
+    <h2>Chat Messages</h2>
+    <div class="container">
+        <div class="row">
+
+            <ul id="messages" class="thumbnail"></ul>
+
+            <form action="">
+                <input id="m" autocomplete="off">
+                <button>Send</button>
+            </form>
+        </div>
+    </div>
+    <label>Total Users: <span id="totalUsers"></span> </label>
+    </div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+    <script>
+        localStorage.setItem('partner', window.location.href.substring(window.location.href.lastIndexOf('/') + 1));
+        var socket = io();
+        var room = '';
+        var partner = localStorage.getItem('partner');
+        var user = localStorage.getItem('user_id');
+        $(function() {
+            //send msgs to server
+            $('form').submit(function() {
+                var msg = {
+                    "room": room,
+                    "to": partner,
+                    "from": user,
+                    "msg": $('#m').val()
+                };
+                socket.emit('chatadd', msg);
+                $('#m').val('');
+                return false;
+            });
+            //get old msgs
+            socket.on('oldMsgs', function(msg) {
+                $('#messages').html('');
+                for (var i = 0; i < msg.length; i++) {
+                    $('#messages').append($("<li>").text(msg[i].from + ': ' + msg[i].msg));
+                }
+
+            });
+            //add user in room
+            socket.emit('user', partner, user);
+            //get updated user count
+            socket.on('userUpdate', function(data) {
+                $('#totalUsers').text(data.users);
+                room = data.room;
+            });
+            //get new msgs from server
+            socket.on('chatlisten', function(msg) {
+                $('#messages').append($("<li>").text(msg));
+            });
+        });
+    </script>
+</body>
+
+</html>
