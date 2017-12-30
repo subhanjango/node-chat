@@ -34,6 +34,7 @@ var chatSchema = mongo.Schema({
     msg: String,
     to: String,
     from: String,
+    from_name: String,
     time: { type: Date, default: Date.now }
 });
 //Creating collection in db
@@ -63,26 +64,39 @@ io.on('connection', function(socket) {
 
     //new chat msg
     socket.on('chatadd', function(msg) {
-        var newMsg = new Chat({
-            msg: msg.msg,
-            to: msg.to,
-            from: msg.from
-        });
-        //saving msg in db
-        newMsg.save(function(err, docs) {
+
+        //get user data
+        UserReg.findOne({ ID: msg.from }, function(err, user) {
             if (err) {
-                console.log(err);
                 throw err;
             } else {
                 //send old msg to client
-                if (parseInt(msg.to) > parseInt(msg.from)) {
-                    room = msg.to + '-' + msg.from;
-                } else {
-                    room = msg.from + '-' + msg.to;
-                }
-                getOldMsgs(msg.to, msg.from, room);
+                var newMsg = new Chat({
+                    msg: msg.msg,
+                    to: msg.to,
+                    from: msg.from,
+                    from_name: user.Name
+                });
+
+
+                //saving msg in db
+                newMsg.save(function(err, docs) {
+                    if (err) {
+                        console.log(err);
+                        throw err;
+                    } else {
+                        //send old msg to client
+                        if (parseInt(msg.to) > parseInt(msg.from)) {
+                            room = msg.to + '-' + msg.from;
+                        } else {
+                            room = msg.from + '-' + msg.to;
+                        }
+                        getOldMsgs(msg.to, msg.from, room);
+                    }
+                });
             }
         });
+
     });
     //new user added
     socket.on('user', function(to, from) {

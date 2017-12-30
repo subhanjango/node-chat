@@ -45,7 +45,7 @@
             socket.on('oldMsgs', function(msg) {
                 $('#messages').html('');
                 for (var i = 0; i < msg.length; i++) {
-                    $('#messages').append($("<li>").text(msg[i].from + ': ' + msg[i].msg));
+                    $('#messages').append($("<li>").text(msg[i].from_name + ': ' + msg[i].msg));
                 }
 
             });
