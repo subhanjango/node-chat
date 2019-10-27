@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+</head>
+
+<body>
+
+    <label>Room Id</label>
+    <input type="text" id="roomID">
+    <input type="submit" id="roomIDSubmit" value="Submit Room">
+
+    <br>
+
+    <label>User Id</label>
+    <input type="text" id="userID">
+
+    <br>
+
+    <label>Submit Results</label>
+    <input type="text" value="{'correct' : 1 , empty : 0 , wrong : 0}" id="result">
+    <input type="submit" id="resultSubmit" value="Submit Result">
+
+    <h2>Chat Messages</h2>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+    <script>
+        var socket = io();
+
+        $('#roomIDSubmit').on('click' , function() {
+            socket.emit('join' , $('#userID').val() , $('#roomID').val());
+        });
+
+        $('#resultSubmit').on('click' , function() {
+            socket.emit('submit-response' , $('#userID').val() , $('#roomID').val() , $('#result').val());
+        });
+
+        $(function() {
+            socket.on('queue-update' , function(msg) {
+                console.log('queue-update',msg);
+            });
+            socket.on('room-update' , function(msg) {
+                console.log('room-update',msg);
+            });
+            socket.on('game-rooms' , function(msg) {
+                console.log('game-rooms',msg);
+            });
+            socket.on('rooms' , function(msg) {
+                console.log('rooms',msg);
+            });
+        });
+    </script>
+</body>
+
+</html>

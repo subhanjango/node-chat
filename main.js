@@ -1,224 +1,336 @@
+const PORT = 3000;
+
 var app = require('express')();
 var http = require('http').Server(app);
 var io = require('socket.io')(http);
-var mongo = require('mongoose');
+var request = require('request');
 const bodyParser = require('body-parser');
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({
     extended: true
 }));
-//users count
-var users = 0;
-//index route
-app.get('/', function(req, res) {
-    res.sendFile(__dirname + "/register.html");
+app.use(function(req,res,next){
+    req.io = io;
+    next();
 });
-//index route
-app.get('/chat/:id', function(req, res) {
-    res.sendFile(__dirname + "/index.html");
+
+const muqabla_baseurl = 'https://karmuqabladev.wpengine.com/wp-json/wp/v1' 
+
+let queue = {} , gameProgress = {} , rooms = {};
+
+
+app.get('/test', function(req, res) {
+    res.sendFile(__dirname + "/test.html");
 });
-//friends route
-app.get('/friends', function(req, res) {
-    res.sendFile(__dirname + "/friends.html");
-});
-//mongo connection
-mongo.connect('mongodb://localhost/chat', function(err) {
-    if (err) {
-        console.log(err);
-    } else {
-        console.log('Mongoose ready');
+
+async function findGame(user_id , room_data , io) {
+    
+    return new Promise(function(resolve , reject){
+        
+        if(Object.keys(queue).length) {
+            
+            let i = 1;
+            
+            for(let key in queue) {
+
+                if(key != user_id && room_data[0].exam_id == queue[key].exam_id) {
+                    
+                    let room_id = generateID(4);
+                    
+                    let gameProgressData = {'room_id' : room_id};
+                    
+                    gameProgress[user_id] = gameProgressData;
+                    gameProgress[key] = gameProgressData;
+                    
+                    io.emit('game-rooms' , gameProgress);
+                    
+                    let roomData = {};
+                    
+                    roomData[user_id] = queue[user_id]['data'];
+                    roomData[key] = queue[key]['data'];
+                    roomData['user1'] = user_id;
+                    roomData['user2'] = key;
+                    roomData['room_data'] = room_data;
+                    roomData['response-'+user_id] = [];
+                    roomData['response-'+key] = [];
+                    roomData['status'] = 'ongoing';
+                    
+                    rooms[room_id] = roomData;
+                    
+                    delete queue[user_id];
+                    delete queue[key];
+                    
+                    io.emit('queue-update',queue);
+                    
+                    resolve();
+                    return;
+                }
+                
+                if(i == Object.keys(queue).length) {
+                    resolve();
+                }
+                
+                i++;
+            }
+            
+        } else {
+            resolve();
+        }
+        
+    });
+}
+
+app.get('/add-to-queue/:id/:exam_id', async function(req, res) {
+    
+    try {
+        
+        let params = req.params;
+        
+        let url = `${muqabla_baseurl}/get_user_details?user_id=${params.id}`;
+        
+        let response = await externalCall(url);
+        
+        let user_data = response.data;
+        
+        if(user_data) {
+            
+            queue[user_data.ID] = {'data' : user_data ,  'exam_id' :  params.exam_id};
+            
+            req.io.emit('queue-update',queue);
+            
+            url = `${muqabla_baseurl}/get_exam_questions?exam_id=${params.exam_id}`;
+            
+            response = await externalCall(url);
+            
+            let exam_data = response.data;
+            
+            await findGame(user_data.ID , exam_data , req.io);
+        }
+        
+        return makeClientHappy('Added' , user_data , res);
+        
+    } catch(e) {
+        console.log(e);
     }
 });
-//Creating schema 
-var chatSchema = mongo.Schema({
-    msg: String,
-    to: String,
-    from: String,
-    from_name: String,
-    time: { type: Date, default: Date.now }
+
+app.get('/remove-from-queue/:id', async function(req, res) {
+    
+    try {
+        
+        let params = req.params;
+        
+        let url = `${muqabla_baseurl}/get_user_details?user_id=${params.id}`;
+        
+        let response = await externalCall(url);
+        
+        let user_data = response.data;
+        
+        delete queue[user_data.ID]
+        
+        req.io.emit('queue-update',queue);
+        
+        return makeClientHappy('Removed' , user_data , res);
+        
+    } catch(e) {
+        console.log(e);
+    }
 });
-//Creating collection in db
-var Chat = mongo.model('Message', chatSchema);
+
+
 //connection established
 io.on('connection', function(socket) {
-
-    function getOldMsgs(to, from, room) {
-
-        //retrieve msg
-        var query = Chat.find({
-            $or: [
-                { $and: [{ to: to }, { from: from }] },
-                { $and: [{ to: from }, { from: to }] }
-            ]
-        });
-        query.sort('time').exec(function(err, docs) {
-            if (err) {
-                throw err;
-            } else {
-                //send old msg to client
-                console.log('Sending to room:', room);
-                io.sockets.in(room).emit('oldMsgs', docs);
-            }
-        });
-    }
-
-    //new chat msg
-    socket.on('chatadd', function(msg) {
-
-        //get user data
-        UserReg.findOne({ ID: msg.from }, function(err, user) {
-            if (err) {
-                throw err;
-            } else {
-                //send old msg to client
-                var newMsg = new Chat({
-                    msg: msg.msg,
-                    to: msg.to,
-                    from: msg.from,
-                    from_name: user.Name
-                });
-
-
-                //saving msg in db
-                newMsg.save(function(err, docs) {
-                    if (err) {
-                        console.log(err);
-                        throw err;
-                    } else {
-                        //send old msg to client
-                        if (parseInt(msg.to) > parseInt(msg.from)) {
-                            room = msg.to + '-' + msg.from;
-                        } else {
-                            room = msg.from + '-' + msg.to;
-                        }
-                        getOldMsgs(msg.to, msg.from, room);
-                    }
-                });
-            }
-        });
-
-    });
-    //new user added
-    socket.on('user', function(to, from) {
-
-
-        if (parseInt(to) > parseInt(from)) {
-            room = to + '-' + from;
-        } else {
-            room = from + '-' + to;
+    
+    
+    socket.on('join' , function(user_id , room_id) {
+        
+        socket.room_id = room_id;
+        socket.user = user_id;
+        socket.join(room_id);
+        
+        io.sockets.in(room_id).emit('room-update', rooms[room_id]);
+        
+        if(roomCount(room_id) == 2) {
+            
+            delete gameProgress[rooms[room_id]['user1']];
+            delete gameProgress[rooms[room_id]['user2']];
+            
+            io.emit('game-rooms' , gameProgress);
         }
-
-        //subscribe to room
-        socket.user = from;
-        socket.join(room);
-
-
-        console.log('joining room', room);
-
-        data = {
-            "users": roomCount(room),
-            "room": room
-        };
-        getOldMsgs(to, from, room);
-        //send user count
-        io.emit('userUpdate', data);
     });
+    
+    socket.on('submit-response' , async function(user_id ,room_id , exam_response){
+        
+        let roomData = rooms[room_id];
+        
+        roomData['response-'+user_id].push(exam_response);
+        
+        let user1complete = roomData['response-'+roomData['user1']].length == roomData['room_data'].length;
+        let user2complete = roomData['response-'+roomData['user2']].length == roomData['room_data'].length;
+        
+        if(user1complete && user2complete) {
+            
+            roomData['winner'] = await selectWinner(roomData);
+            roomData['status'] = 'complete';
+            
+            io.sockets.in(room_id).emit('room-update' , rooms[room_id]);
+            
+            delete rooms[room_id];
+            return;
+        }
+        
+        io.sockets.in(room_id).emit('room-update', rooms[room_id]);
+        
+    });
+    
+    
     //user inactive
-    socket.on('bye', function() {
-        if (users != 0 && users > 1) {
-            //remove user
-            users = users - 1;
-            //send updated user count
-            io.emit('userUpdate', users);
+    socket.on('disconnect', function() {
+        
+        console.log('disconnected socket' ,socket.room_id);
+        
+        if(!socket.room_id && !rooms[socket.room_id]) {
+            return;
         }
-        console.log('disconnected');
+        
+        let roomData = rooms[socket.room_id];
+        
+        if(roomData.status == 'ongoing') {
+            
+            roomData['winner'] = roomData['user1'] == socket.user ? roomData['user2'] : roomData['user1'];
+            roomData['status'] = 'complete';
+            
+            io.sockets.in(socket.room_id).emit('room-update' , rooms[socket.room_id]);
+            
+            delete rooms[socket.room_id];
+            
+        }
     });
-
+    
 });
 
 
 io.on('disconnect', function() {
-    if (users != 0 && users > 1) {
-        //remove user
-        users = users - 1;
-        //send updated user count
-        io.emit('userUpdate', users);
-    }
     console.log('disconnected');
 });
+
 //port 
-http.listen(3000, function() {
-    console.log('listening');
-});
-//adding user
-
-// Schema
-var RegSchema = mongo.Schema({
-    Name: String,
-    reg_time: {
-        type: Date,
-        default: Date.now
-    },
-    ID: String
+http.listen(PORT, function() {
+    console.log(`listening on : ${PORT}`);
 });
 
-// Model
-var UserReg = mongo.model('UserReg', RegSchema);
-app.post("/register", function(req, res) {
-    var data = { "msg": '' };
+function selectWinner(roomFinalData) {
+    
+    return new Promise(function(resolve , reject) {
+        
+        let user1correct = [] , user2correct = [];
+        let user1Data = roomFinalData['response-'+roomFinalData['user1']];
+        let user2Data = roomFinalData['response-'+roomFinalData['user2']];
+        
+        let user1iteration = 1, user2iteration = 1;
+        
+        for(let key1 in user1Data) {
+            
+            if(user1Data[key1].correct == 1) {
+                user1correct.push('correct');
+            }
+            
+            console.log(user1iteration , user1Data.length);
+            
+            if(user1iteration == user1Data.length) {
+                
+                for(let key2 in user2Data) {
 
-    var checkExists = UserReg.findOne({ Name: req.body.Name }, function(err, user) {
-        if (err) {
-            console.log(err);
+                    if(user2Data[key2].correct == 1) {
+                        user2correct.push('correct');
+                    }
+                    
+                    if(user2iteration == user2Data.length) {
+                        
+                        let draw_condtion = user1correct.length == user2correct.length;
+
+                        let condition = user1correct.length > user2correct.length;
+                        
+                        let winner = condition ? roomFinalData['user2'] : roomFinalData['user1']; 
+                        
+                        let result = draw_condtion ? 0 : winner;
+
+                        resolve(result);
+                    }
+                    user2iteration++;
+                }
+            }
+            
+            user1iteration++;
+            
         }
-        if (user) {
-            data.user = user.ID;
-        } else {
-
-            // Add in collection
-            var UserAdd = new UserReg({
-                Name: req.body.Name,
-                ID: generateID(10)
-            });
-
-            // Save
-            UserAdd.save(function(err, fluffy) {
-                if (err) return console.error(err);
-            });
-
-            data.user = UserAdd.ID;
-        }
-        res.send(data);
+        
     });
+    
+}
 
-});
+function externalCall(url , data = {} , isPost = false) {
+    
+    return new Promise(function (resolve, reject) {
+        
+        var options = {
+            method: isPost ? 'POST' : 'GET',
+            url: url,
+            json: data
+        };
+        
+        request(options, function (error, response, body) {
+            
+            if (error) throw new Error(error);
+            
+            if (response.statusCode != 200 && response.statusCode != 201) {
+                reject(body);
+            }
+            
+            resolve(body);
+            
+        });
+        
+    });  
+    
+}
 
 function generateID(length) {
     let text = ""
     const possible = "0123456789"
-
+    
     for (let i = 0; i < length; i++) {
         text += possible.charAt(Math.floor(Math.random() * possible.length))
     }
-
+    
     return text
 }
 
-//list people
-app.get('/people/:user_id', function name(req, res) {
+function sendErrorToClient(msg , data , res) {
+    
+    res.status(400);
+    
+    let json = {
+        'msg' : msg,
+        'data' : data
+    };
+    
+    return res.send(json);
+    
+}
 
-    //console.log(req);
-    //retrieve msg
-    var query = UserReg.find({ ID: { $ne: parseInt(req.params.user_id) } });
-    query.sort('-reg_time').exec(function(err, docs) {
-        if (err) {
-            throw err;
-        } else {
-            //send old msg to client
-            res.send(docs);
-        }
-    });
-});
+function makeClientHappy(msg , data , res) {
+    
+    res.status(200);
+    
+    let json = {
+        'msg' : msg,
+        'data' : data
+    };
+    
+    return res.send(json);
+    
+}
 
 function roomCount(roomName) {
     var roomCount = io.nsps['/'].adapter.rooms[roomName];
